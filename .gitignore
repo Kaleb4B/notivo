@@ -1,0 +1,26 @@
+# Build directories
+build/
+dist/
+*.spec
+*.app
+Notivo/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# macOS
+.DS_Store
+
+# App data
+sessions/
+logs/
+config.json
+.env
+
+# Virtual environments
+venv/
+env/
+.venv/

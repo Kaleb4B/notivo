@@ -1,0 +1,21 @@
+# Core UI
+PySide6>=6.5.0
+
+# Audio recording & processing
+sounddevice>=0.4.6
+soundfile>=0.12.1
+numpy>=1.24.0
+
+# AI Transcription (Whisper)
+faster-whisper>=1.0.0
+
+# AI Voice Activity Detection (Silero VAD)
+torch>=2.0.0
+torchaudio>=2.0.0
+
+# AI Summary (Ollama client)
+ollama>=0.4.0
+
+# Utilities
+requests>=2.31.0
+markdown>=3.4.3
