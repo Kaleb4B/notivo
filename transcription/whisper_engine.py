@@ -25,27 +25,73 @@ class WhisperEngine:
             logger.error(f"Failed to load Whisper model: {e}")
             raise e
             
+    # Known Whisper hallucination phrases to filter out
+    HALLUCINATION_PATTERNS = [
+        "berikut adalah transkripsi",
+        "terima kasih telah menonton",
+        "terima kasih banyak-banyak",
+        "sampai jumpa lagi",
+        "thank you for watching",
+        "sottotitoli creati",
+        "amara.org",
+        "ご覧いただき",
+        # Greek/other foreign language hallucinations from silence
+        "συνταγη",
+    ]
+
     def transcribe(self, audio_data, language="auto"):
         if not self.model:
             return ""
         try:
             lang = None if language == "auto" else language
-            
-            # Initial prompt gives the model context about the domain vocabulary
-            context_prompt = "Berikut adalah transkripsi rapat tentang Notivo, Python, AI, dan database."
-            
+
+            # NOTE: Do NOT use initial_prompt with topic-specific text.
+            # Whisper will hallucinate and repeat the prompt verbatim during silence.
+            # Use a minimal/neutral prompt only if needed for language hints.
+
             segments, info = self.model.transcribe(
-                audio_data, 
-                language=lang, 
+                audio_data,
+                language=lang,
                 beam_size=5,
-                vad_filter=True,  # Built-in VAD completely eliminates silence hallucinations
-                vad_parameters=dict(min_silence_duration_ms=500),
+                vad_filter=True,
+                vad_parameters=dict(
+                    min_silence_duration_ms=500,
+                    speech_pad_ms=200,
+                ),
                 condition_on_previous_text=False,
-                initial_prompt=context_prompt,
-                no_speech_threshold=0.5
+                no_speech_threshold=0.6,       # Higher = stricter, fewer hallucinations
+                log_prob_threshold=-1.0,        # Discard very low-confidence segments
+                compression_ratio_threshold=2.2 # Filter repetitive/compressed hallucinations
             )
-            text = " ".join([segment.text for segment in segments])
-            return text.strip()
+
+            # Filter out hallucinated segments by log probability and known patterns
+            clean_texts = []
+            for seg in segments:
+                text = seg.text.strip()
+                if not text:
+                    continue
+                # Skip very low probability segments (likely hallucination)
+                if hasattr(seg, 'no_speech_prob') and seg.no_speech_prob > 0.6:
+                    logger.debug(f"Skipped low-prob segment: {text[:50]}")
+                    continue
+                # Skip known hallucination phrases
+                if self._is_hallucination(text):
+                    logger.debug(f"Filtered hallucination: {text[:60]}")
+                    continue
+                clean_texts.append(text)
+
+            return " ".join(clean_texts).strip()
         except Exception as e:
             logger.error(f"Transcription error: {e}")
             return ""
+
+    def _is_hallucination(self, text: str) -> bool:
+        """Return True if text matches a known Whisper hallucination pattern."""
+        normalized = text.lower().strip()
+        for pattern in self.HALLUCINATION_PATTERNS:
+            if pattern in normalized:
+                return True
+        # Also filter very short non-word outputs (single punctuation, etc.)
+        if len(normalized.replace('.', '').replace(',', '').strip()) < 2:
+            return True
+        return False

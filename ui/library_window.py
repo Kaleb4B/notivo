@@ -23,6 +23,15 @@ class LibraryWindow(QDialog):
         self.load_sessions()
         self.apply_theme()
         
+    def closeEvent(self, event):
+        if hasattr(self, '_summary_worker') and self._summary_worker.isRunning():
+            self._summary_worker.terminate()
+            self._summary_worker.wait(500)
+        if hasattr(self, '_translate_worker') and self._translate_worker.isRunning():
+            self._translate_worker.terminate()
+            self._translate_worker.wait(500)
+        super().closeEvent(event)
+        
     def watch_sessions_directory(self):
         sessions_dir = str(self.session_manager.root_dir)
         if os.path.exists(sessions_dir) and sessions_dir not in self.file_watcher.directories():
@@ -101,9 +110,20 @@ class LibraryWindow(QDialog):
         right_panel.addLayout(transcript_header)
         right_panel.addWidget(self.transcript_area)
         
+        # Summary header
+        summary_header = QHBoxLayout()
+        summary_header.addWidget(QLabel("✨ AI Summary"))
+        summary_header.addStretch()
+        
+        self.btn_resummarize = QPushButton("🔄 Re-Summarize")
+        self.btn_resummarize.setObjectName("resummarizeBtn")
+        self.btn_resummarize.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_resummarize.clicked.connect(self.resummarize_session)
+        summary_header.addWidget(self.btn_resummarize)
+
         self.summary_area = QTextEdit()
         self.summary_area.setReadOnly(True)
-        right_panel.addWidget(QLabel("✨ AI Summary"))
+        right_panel.addLayout(summary_header)
         right_panel.addWidget(self.summary_area)
         
         right_widget = QWidget()
@@ -209,6 +229,24 @@ class LibraryWindow(QDialog):
                 selection-background-color: #10b981;
                 selection-color: white;
                 outline: 0;
+            }
+            QPushButton#resummarizeBtn {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                    stop:0 #2a1e4a, stop:1 #221a3e);
+                color: #c4b5fd;
+                border: 1px solid #4a3a7a;
+                border-radius: 8px;
+                padding: 5px 12px;
+                font-weight: 600;
+                font-size: 12px;
+            }
+            QPushButton#resummarizeBtn:hover {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                    stop:0 #3a2a6a, stop:1 #322a5e);
+                border-color: #8b5cf6;
+            }
+            QPushButton#resummarizeBtn:disabled {
+                color: #504070; border-color: #3a2a50; background: #1a152a;
             }
             QSplitter::handle {
                 background-color: #24243a;
@@ -479,5 +517,78 @@ class LibraryWindow(QDialog):
         if not title or title == "New Recording" or title == "Meeting Session":
             title = session.metadata.created_at
             
-        dialog = PDFPreviewDialog(title, transcript, summary_html, self)
+        dialog = PDFPreviewDialog(title, transcript, summary_html, self, session=session)
         dialog.exec()
+
+    def resummarize_session(self):
+        item = self.session_list.currentItem()
+        if not item:
+            return
+            
+        session = item.data(Qt.ItemDataRole.UserRole)
+        
+        # Make sure transcript exists
+        if not session.transcript_file.exists():
+            QMessageBox.warning(self, "No Transcript", "Cannot summarize because there is no transcript available.")
+            return
+
+        reply = QMessageBox.question(
+            self, 'Re-Summarize', 
+            'Are you sure you want to re-generate the AI summary? This will overwrite the existing summary and may take a few moments.',
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
+                                     
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+            
+        self.btn_resummarize.setEnabled(False)
+        self.btn_resummarize.setText("⏳ Processing...")
+        self.summary_area.setPlainText("AI is re-summarizing the transcript... Please wait.")
+        
+        # Disable controls while working
+        self.combo_translate_lang.setEnabled(False)
+        self.btn_translate.setEnabled(False)
+        self.btn_rename.setEnabled(False)
+        self.btn_delete_session.setEnabled(False)
+        self.btn_open_folder.setEnabled(False)
+        self.btn_export_pdf.setEnabled(False)
+        
+        from summary.summary_worker import SummaryWorker
+        self._summary_worker = SummaryWorker(str(session.transcript_file), str(session.summary_file), session)
+        self._summary_worker.summary_finished.connect(self._on_resummarize_done)
+        self._summary_worker.error_occurred.connect(self._on_resummarize_error)
+        self._summary_worker.start()
+
+    def _on_resummarize_done(self, new_summary):
+        self._original_summary = new_summary
+        self._translated_summary = ""
+        self._is_translated = False
+        
+        self.summary_area.setHtml(markdown.markdown(new_summary))
+        
+        self.btn_resummarize.setText("🔄 Re-Summarize")
+        self.btn_resummarize.setEnabled(True)
+        
+        self.combo_translate_lang.setEnabled(True)
+        self.btn_translate.setEnabled(True)
+        self.btn_restore_original.setVisible(False)
+        self.btn_rename.setEnabled(True)
+        self.btn_delete_session.setEnabled(True)
+        self.btn_open_folder.setEnabled(True)
+        self.btn_export_pdf.setEnabled(True)
+        
+        QMessageBox.information(self, "Success", "Summary regenerated successfully!")
+
+    def _on_resummarize_error(self, err):
+        self.btn_resummarize.setText("🔄 Re-Summarize")
+        self.btn_resummarize.setEnabled(True)
+        
+        self.combo_translate_lang.setEnabled(True)
+        self.btn_translate.setEnabled(True)
+        self.btn_rename.setEnabled(True)
+        self.btn_delete_session.setEnabled(True)
+        self.btn_open_folder.setEnabled(True)
+        self.btn_export_pdf.setEnabled(True)
+        
+        self.summary_area.setPlainText(f"AI Summary failed:\n{err}\n\nMake sure Ollama is running.")

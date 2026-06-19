@@ -38,8 +38,12 @@ def main():
 
     # We need a reference to main_window that persists
     main_window_ref = []
+    launched = [False]
 
     def launch_app():
+        if launched[0]:
+            return
+        launched[0] = True
         main_window = MainWindow()
         main_window_ref.append(main_window)
         main_window.show()
