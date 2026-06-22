@@ -95,13 +95,11 @@ class SetupWorker(QThread):
             pass
 
         import requests
-        import subprocess
         import time
         import urllib.request
         import zipfile
         import os
         import shutil
-        import sys
         
         # Helper to find Ollama CLI
         def get_ollama_cmd():
