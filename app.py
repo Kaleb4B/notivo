@@ -1,4 +1,13 @@
 import sys
+import os
+
+# PyInstaller --windowed mode sets sys.stdout and sys.stderr to None.
+# We redirect them to os.devnull to prevent 'NoneType object has no attribute write' errors.
+if sys.stdout is None:
+    sys.stdout = open(os.devnull, "w")
+if sys.stderr is None:
+    sys.stderr = open(os.devnull, "w")
+
 from pathlib import Path
 from PySide6.QtWidgets import QApplication
 from PySide6.QtGui import QIcon
