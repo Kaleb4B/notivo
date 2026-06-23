@@ -25,18 +25,22 @@ class SetupWorker(QThread):
         self.step_started.emit("packages", "Installing Python packages...")
         try:
             self.step_progress.emit("packages", 10)
-            result = subprocess.run(
-                [sys.executable, "-m", "pip", "install", "-r",
-                 "requirements.txt", "--quiet", "--break-system-packages"],
-                capture_output=True, text=True, timeout=300
-            )
-            self.step_progress.emit("packages", 100)
-            if result.returncode == 0:
-                self.step_done.emit("packages", True, "")
+            if getattr(sys, 'frozen', False):
+                self.step_progress.emit("packages", 100)
+                self.step_done.emit("packages", True, "Bundled (skipped)")
             else:
-                # Critical — can't continue without packages
-                self.step_done.emit("packages", False, result.stderr[:120])
-                return
+                result = subprocess.run(
+                    [sys.executable, "-m", "pip", "install", "-r",
+                     "requirements.txt", "--quiet", "--break-system-packages"],
+                    capture_output=True, text=True, timeout=300
+                )
+                self.step_progress.emit("packages", 100)
+                if result.returncode == 0:
+                    self.step_done.emit("packages", True, "")
+                else:
+                    # Critical — can't continue without packages
+                    self.step_done.emit("packages", False, result.stderr[:120])
+                    return
         except Exception as e:
             self.step_done.emit("packages", False, str(e))
             return
